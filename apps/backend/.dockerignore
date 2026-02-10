@@ -1,0 +1,33 @@
+# Build artifacts
+target/
+debug/
+release/
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Local env files
+.env
+.env.local
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Documentation
+README.md
+docs/
+
+# Testing
+tests/
+
+# Misc
+.DS_Store
+*.pem
