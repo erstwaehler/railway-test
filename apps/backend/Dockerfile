@@ -8,7 +8,9 @@ WORKDIR /app
 # Install cargo-chef for dependency caching
 RUN cargo install cargo-chef --locked
 
+# Copy complete crate structure for cargo-chef
 COPY Cargo.toml Cargo.lock ./
+COPY src ./src
 
 RUN cargo chef prepare --recipe-path recipe.json
 
