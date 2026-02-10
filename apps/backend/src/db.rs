@@ -1,6 +1,7 @@
-use sqlx::{PgPool, postgres::PgPoolOptions};
-use tokio_postgres::{AsyncMessage, NoTls};
+use sqlx::{PgPool, postgres::{PgPoolOptions, PgListener}};
 use tracing::{info, error, warn};
+
+use crate::broadcaster::{Broadcaster, ServerEvent};
 
 pub type DbPool = PgPool;
 
@@ -15,10 +16,10 @@ pub async fn create_pool(database_url: &str) -> Result<DbPool, sqlx::Error> {
     Ok(pool)
 }
 
-/// Start PostgreSQL LISTEN/NOTIFY listener
-pub async fn start_listener(database_url: String) {
+/// Start PostgreSQL LISTEN/NOTIFY listener with broadcaster
+pub async fn start_listener(database_url: String, broadcaster: Broadcaster) {
     loop {
-        match listen_to_notifications(&database_url).await {
+        match listen_to_notifications(&database_url, broadcaster.clone()).await {
             Ok(_) => {
                 warn!("Listener connection closed, reconnecting...");
             }
@@ -30,61 +31,37 @@ pub async fn start_listener(database_url: String) {
     }
 }
 
-async fn listen_to_notifications(database_url: &str) -> Result<(), Box<dyn std::error::Error>> {
-    // Parse connection string
-    let config = database_url.parse::<tokio_postgres::Config>()?;
-    
-    // Connect to database
-    let (client, mut connection) = config.connect(NoTls).await?;
+async fn listen_to_notifications(database_url: &str, broadcaster: Broadcaster) -> Result<(), sqlx::Error> {
+    // Create a listener
+    let mut listener = PgListener::connect(database_url).await?;
     
     info!("Listener connected to database");
 
     // Listen to channels
-    client.execute("LISTEN event_changes", &[]).await?;
-    client.execute("LISTEN participant_changes", &[]).await?;
+    listener.listen("event_changes").await?;
+    listener.listen("participant_changes").await?;
     
     info!("Listening to event_changes and participant_changes channels");
 
     // Process notifications
     loop {
-        tokio::select! {
-            message = connection.recv() => {
-                match message {
-                    Some(Ok(AsyncMessage::Notification(notification))) => {
-                        handle_notification(notification);
-                    }
-                    Some(Err(e)) => {
-                        error!("Connection error: {}", e);
-                        return Err(e.into());
-                    }
-                    None => {
-                        warn!("Connection closed");
-                        return Ok(());
-                    }
-                    _ => {}
-                }
-            }
-        }
+        let notification = listener.recv().await?;
+        handle_notification(notification.channel(), notification.payload(), &broadcaster);
     }
 }
 
-fn handle_notification(notification: tokio_postgres::Notification) {
+fn handle_notification(channel: &str, payload: &str, broadcaster: &Broadcaster) {
     info!(
         "Received notification on channel '{}': {}",
-        notification.channel(),
-        notification.payload()
+        channel,
+        payload
     );
     
-    // TODO: Parse payload and broadcast to WebSocket clients
-    match notification.channel() {
-        "event_changes" => {
-            info!("Event change detected: {}", notification.payload());
-        }
-        "participant_changes" => {
-            info!("Participant change detected: {}", notification.payload());
-        }
-        _ => {
-            warn!("Unknown channel: {}", notification.channel());
-        }
-    }
+    // Broadcast to all SSE clients
+    let event = ServerEvent {
+        channel: channel.to_string(),
+        payload: payload.to_string(),
+    };
+    
+    broadcaster.broadcast(event);
 }

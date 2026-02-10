@@ -1,16 +1,26 @@
+mod broadcaster;
 mod db;
 mod models;
+mod routes;
 
 use axum::{
-    routing::get,
+    routing::{get, post, put, delete},
     Router,
     Json,
-    http::StatusCode,
 };
 use serde::Serialize;
 use std::net::SocketAddr;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+use broadcaster::Broadcaster;
+use db::DbPool;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub db_pool: DbPool,
+    pub broadcaster: Broadcaster,
+}
 
 #[derive(Serialize)]
 struct HealthResponse {
@@ -45,14 +55,50 @@ async fn main() {
         .await
         .expect("Failed to create database pool");
 
+    // Create broadcaster for SSE
+    let broadcaster = Broadcaster::new();
+
     // Start database listener in background
-    tokio::spawn(db::start_listener(database_url.clone()));
+    tokio::spawn(db::start_listener(database_url.clone(), broadcaster.clone()));
+
+    // Create shared application state
+    let app_state = AppState {
+        db_pool,
+        broadcaster,
+    };
 
     // Build application router
     let app = Router::new()
+        // Health check
         .route("/health", get(health_check))
-        .layer(CorsLayer::permissive())
-        .with_state(db_pool);
+        
+        // Event routes
+        .route("/api/events", get(routes::events::list_events))
+        .route("/api/events", post(routes::events::create_event))
+        .route("/api/events/:id", get(routes::events::get_event))
+        .route("/api/events/:id", put(routes::events::update_event))
+        .route("/api/events/:id", delete(routes::events::delete_event))
+        
+        // Participant routes
+        .route("/api/events/:event_id/participants", get(routes::participants::list_participants))
+        .route("/api/participants", post(routes::participants::create_participant))
+        .route("/api/participants/:id", get(routes::participants::get_participant))
+        .route("/api/participants/:id", put(routes::participants::update_participant_status))
+        .route("/api/participants/:id", delete(routes::participants::delete_participant))
+        
+        // SSE stream endpoint
+        .route("/api/events/stream", get(routes::sse::event_stream))
+        
+        // Add CORS middleware
+        .layer(
+            CorsLayer::new()
+                .allow_origin(tower_http::cors::Any)
+                .allow_methods(tower_http::cors::Any)
+                .allow_headers(tower_http::cors::Any)
+        )
+        
+        // Add state
+        .with_state(app_state);
 
     // Start server
     let port = std::env::var("PORT")
