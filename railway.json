@@ -1,0 +1,92 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "numReplicas": 1,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
+  },
+  "services": {
+    "postgres": {
+      "name": "postgres",
+      "image": "postgres:16-alpine",
+      "deploy": {
+        "numReplicas": 1,
+        "restartPolicyType": "ON_FAILURE"
+      },
+      "variables": {
+        "POSTGRES_USER": "railway",
+        "POSTGRES_PASSWORD": "${{ secrets.POSTGRES_PASSWORD }}",
+        "POSTGRES_DB": "railway"
+      },
+      "volumes": [
+        {
+          "name": "postgres-data",
+          "mountPath": "/var/lib/postgresql/data"
+        }
+      ],
+      "healthcheck": {
+        "command": "pg_isready -U railway",
+        "interval": 10,
+        "timeout": 5,
+        "retries": 5
+      }
+    },
+    "backend": {
+      "name": "backend",
+      "build": {
+        "builder": "DOCKERFILE",
+        "dockerfilePath": "apps/backend/Dockerfile"
+      },
+      "deploy": {
+        "numReplicas": 1,
+        "restartPolicyType": "ON_FAILURE",
+        "restartPolicyMaxRetries": 10
+      },
+      "variables": {
+        "DATABASE_URL": "${{ postgres.DATABASE_URL }}",
+        "NODE_ENV": "production",
+        "PORT": "3000"
+      },
+      "healthcheck": {
+        "path": "/health",
+        "interval": 30,
+        "timeout": 10,
+        "retries": 3
+      },
+      "dependsOn": [
+        "postgres"
+      ]
+    },
+    "frontend": {
+      "name": "frontend",
+      "build": {
+        "builder": "DOCKERFILE",
+        "dockerfilePath": "apps/frontend/Dockerfile"
+      },
+      "deploy": {
+        "numReplicas": 1,
+        "restartPolicyType": "ON_FAILURE",
+        "restartPolicyMaxRetries": 10
+      },
+      "variables": {
+        "VITE_API_URL": "${{ backend.url }}",
+        "VITE_SSE_URL": "${{ backend.url }}/api/events/stream",
+        "NODE_ENV": "production",
+        "PORT": "3000"
+      },
+      "healthcheck": {
+        "path": "/",
+        "interval": 30,
+        "timeout": 10,
+        "retries": 3
+      },
+      "dependsOn": [
+        "backend"
+      ]
+    }
+  }
+}
