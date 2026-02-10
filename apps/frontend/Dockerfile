@@ -37,6 +37,10 @@ ENV NODE_ENV=production
 # Create non-root user
 RUN groupadd -r nodejs && useradd -r -g nodejs nodejs
 
+# Create writable directories for Bun cache and temp files
+RUN mkdir -p /tmp/bun-cache /app/.cache && \
+  chown -R nodejs:nodejs /tmp/bun-cache /app/.cache
+
 # Copy built application and package.json
 COPY --from=builder --chown=nodejs:nodejs /app/.output ./.output
 COPY --from=builder --chown=nodejs:nodejs /app/package.json ./package.json
@@ -47,5 +51,7 @@ EXPOSE 3000
 
 ENV PORT=3000
 ENV HOST=0.0.0.0
+ENV BUN_TMPDIR=/tmp/bun-cache
+ENV XDG_CACHE_HOME=/app/.cache
 
 CMD ["bun", "run", "start"]
