@@ -5,31 +5,27 @@ FROM oven/bun:1.1.38-slim AS deps
 
 WORKDIR /app
 
-# Copy workspace root files
-COPY package.json bun.lock ./
-COPY turbo.json ./
+# Copy only frontend package.json
+COPY apps/frontend/package.json ./package.json
 
-# Copy frontend package files
-COPY apps/frontend/package.json ./apps/frontend/
-
-# Install dependencies with caching
-RUN --mount=type=cache,target=/root/.bun/install/cache \
-    bun install --frozen-lockfile
+# Install dependencies (standalone mode)
+RUN bun install
 
 # Stage 2: Builder
 FROM oven/bun:1.1.38-slim AS builder
 
 WORKDIR /app
 
+ENV PATH="/app/node_modules/.bin:$PATH"
+
 # Copy dependencies from deps stage
 COPY --from=deps /app/node_modules ./node_modules
 
-# Copy workspace and frontend source
-COPY package.json bun.lock turbo.json ./
-COPY apps/frontend ./apps/frontend
+# Copy all frontend source files (includes package.json)
+COPY apps/frontend ./
 
 # Build the application
-RUN bun --cwd apps/frontend run build
+RUN bun x vite build
 
 # Stage 3: Production
 FROM oven/bun:1.1.38-slim AS runner
@@ -41,9 +37,9 @@ ENV NODE_ENV=production
 # Create non-root user
 RUN groupadd -r nodejs && useradd -r -g nodejs nodejs
 
-# Copy built application
-COPY --from=builder --chown=nodejs:nodejs /app/apps/frontend/.output ./.output
-COPY --from=builder --chown=nodejs:nodejs /app/apps/frontend/package.json ./package.json
+# Copy built application and package.json
+COPY --from=builder --chown=nodejs:nodejs /app/.output ./.output
+COPY --from=builder --chown=nodejs:nodejs /app/package.json ./package.json
 
 USER nodejs
 

@@ -3,7 +3,6 @@ import {
   ScrollRestoration,
   createRootRoute,
 } from '@tanstack/react-router'
-import { Meta, Scripts } from '@tanstack/start'
 import type { ReactNode } from 'react'
 import { useEventSSE } from '../lib/use-event-sse'
 
@@ -34,7 +33,6 @@ function RootDocument({ children }: { children: ReactNode }) {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Railway Test - Events</title>
-        <Meta />
         <style>{`
           * {
             margin: 0;
@@ -65,7 +63,6 @@ function RootDocument({ children }: { children: ReactNode }) {
       <body>
         <div id="root">{children}</div>
         <ScrollRestoration />
-        <Scripts />
       </body>
     </html>
   )

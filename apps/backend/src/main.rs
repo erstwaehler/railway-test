@@ -88,7 +88,7 @@ async fn main() {
             .allow_headers(tower_http::cors::Any)
     } else {
         CorsLayer::new()
-            .allow_origin(cors_origin.parse().expect("Invalid CORS_ORIGIN"))
+            .allow_origin(cors_origin.parse::<axum::http::HeaderValue>().expect("Invalid CORS_ORIGIN"))
             .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::PUT, axum::http::Method::DELETE])
             .allow_headers([axum::http::header::CONTENT_TYPE])
     };
