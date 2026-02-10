@@ -149,13 +149,12 @@ pub async fn create_participant(
     .await
     .map_err(|e| {
         if let Some(db_error) = e.as_database_error() {
-            if let Some(pg_error) = db_error.downcast_ref::<PgDatabaseError>() {
-                if pg_error.code() == "23505" {
-                    return (
-                        StatusCode::CONFLICT,
-                        Json(json!({ "error": "Participant already registered" })),
-                    );
-                }
+            let pg_error = db_error.downcast_ref::<PgDatabaseError>();
+            if pg_error.code() == "23505" {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(json!({ "error": "Participant already registered" })),
+                );
             }
         }
         tracing::error!("Failed to create participant: {}", e);

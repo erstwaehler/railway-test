@@ -107,13 +107,12 @@ pub async fn create_event(
     .await
     .map_err(|e| {
         if let Some(db_error) = e.as_database_error() {
-            if let Some(pg_error) = db_error.downcast_ref::<PgDatabaseError>() {
-                if pg_error.code() == "23514" {
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        Json(json!({ "error": "Invalid event values" })),
-                    );
-                }
+            let pg_error = db_error.downcast_ref::<PgDatabaseError>();
+            if pg_error.code() == "23514" {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": "Invalid event values" })),
+                );
             }
         }
         tracing::error!("Failed to create event: {}", e);
@@ -172,13 +171,12 @@ pub async fn update_event(
     .await
     .map_err(|e| {
         if let Some(db_error) = e.as_database_error() {
-            if let Some(pg_error) = db_error.downcast_ref::<PgDatabaseError>() {
-                if pg_error.code() == "23514" {
-                    return (
-                        StatusCode::BAD_REQUEST,
-                        Json(json!({ "error": "Invalid event values" })),
-                    );
-                }
+            let pg_error = db_error.downcast_ref::<PgDatabaseError>();
+            if pg_error.code() == "23514" {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({ "error": "Invalid event values" })),
+                );
             }
         }
         tracing::error!("Failed to update event: {}", e);
