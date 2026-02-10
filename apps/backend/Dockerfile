@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Stage 1: Planner - Create dependency list
-FROM rust:1.85-bookworm AS planner
+FROM rust:1.93-bookworm AS planner
 
 WORKDIR /app
 
@@ -15,7 +15,7 @@ COPY src ./src
 RUN cargo chef prepare --recipe-path recipe.json
 
 # Stage 2: Builder - Build dependencies
-FROM rust:1.85-bookworm AS builder
+FROM rust:1.93-bookworm AS builder
 
 WORKDIR /app
 
