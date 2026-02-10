@@ -73,16 +73,52 @@ export class ApiClient {
   }
 
   async delete<T>(endpoint: string, options?: RequestInit): Promise<T> {
-    return this.request<T>(endpoint, { ...options, method: 'DELETE' })
+    const url = `${this.baseURL}${endpoint}`
+    
+    const response = await fetch(url, {
+      ...options,
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+    })
+
+    if (!response.ok) {
+      const error: ApiError = {
+        message: `API request failed: ${response.statusText}`,
+        status: response.status,
+      }
+      throw error
+    }
+
+    // Handle 204 No Content response
+    if (response.status === 204) {
+      return undefined as T
+    }
+
+    return response.json()
   }
 }
 
 // Export singleton instance
 export const apiClient = new ApiClient()
 
-// Example typed API methods
+// Typed API methods
+import type { Event, CreateEvent, Participant, CreateParticipant, UpdateParticipantStatus } from './types'
+
 export const eventsApi = {
-  getEvent: (id: string) => apiClient.get(`/events/${id}`),
-  listEvents: () => apiClient.get('/events'),
-  createEvent: (data: unknown) => apiClient.post('/events', data),
+  listEvents: () => apiClient.get<Event[]>('/events'),
+  getEvent: (id: string) => apiClient.get<Event>(`/events/${id}`),
+  createEvent: (data: CreateEvent) => apiClient.post<Event>('/events', data),
+  updateEvent: (id: string, data: CreateEvent) => apiClient.put<Event>(`/events/${id}`, data),
+  deleteEvent: (id: string) => apiClient.delete<void>(`/events/${id}`),
+}
+
+export const participantsApi = {
+  listParticipants: (eventId: string) => apiClient.get<Participant[]>(`/events/${eventId}/participants`),
+  getParticipant: (id: string) => apiClient.get<Participant>(`/participants/${id}`),
+  createParticipant: (data: CreateParticipant) => apiClient.post<Participant>('/participants', data),
+  updateParticipantStatus: (id: string, data: UpdateParticipantStatus) => apiClient.put<Participant>(`/participants/${id}`, data),
+  deleteParticipant: (id: string) => apiClient.delete<void>(`/participants/${id}`),
 }
