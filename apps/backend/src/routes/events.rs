@@ -24,9 +24,10 @@ pub async fn list_events(
     .fetch_all(&state.db_pool)
     .await
     .map_err(|e| {
+        tracing::error!("Failed to fetch events: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Failed to fetch events: {}", e) })),
+            Json(json!({ "error": "Internal server error" })),
         )
     })?;
 
@@ -47,9 +48,10 @@ pub async fn get_event(
     .fetch_optional(&state.db_pool)
     .await
     .map_err(|e| {
+        tracing::error!("Database error fetching event: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Database error: {}", e) })),
+            Json(json!({ "error": "Internal server error" })),
         )
     })?
     .ok_or_else(|| {
@@ -114,9 +116,10 @@ pub async fn create_event(
                 }
             }
         }
+        tracing::error!("Failed to create event: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Failed to create event: {}", e) })),
+            Json(json!({ "error": "Internal server error" })),
         )
     })?;
 
@@ -178,9 +181,10 @@ pub async fn update_event(
                 }
             }
         }
+        tracing::error!("Failed to update event: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Failed to update event: {}", e) })),
+            Json(json!({ "error": "Internal server error" })),
         )
     })?
     .ok_or_else(|| {
@@ -203,9 +207,10 @@ pub async fn delete_event(
         .execute(&state.db_pool)
         .await
         .map_err(|e| {
+            tracing::error!("Failed to delete event: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": format!("Failed to delete event: {}", e) })),
+                Json(json!({ "error": "Internal server error" })),
             )
         })?;
 

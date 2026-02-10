@@ -254,6 +254,8 @@ function ParticipantItem({ participant }: { participant: Participant }) {
     cancelled: '#ef4444',
     waitlisted: '#f59e0b',
   }
+  
+  const statusColor = statusColors[participant.status] || '#6b7280'
 
   return (
     <div style={{
@@ -278,8 +280,8 @@ function ParticipantItem({ participant }: { participant: Participant }) {
           display: 'inline-block',
           padding: '0.125rem 0.5rem',
           borderRadius: '4px',
-          backgroundColor: statusColors[participant.status] + '20',
-          color: statusColors[participant.status],
+          backgroundColor: statusColor + '20',
+          color: statusColor,
           fontWeight: '500',
         }}>
           {participant.status}

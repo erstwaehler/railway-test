@@ -22,6 +22,7 @@ pub async fn start_listener(database_url: String, broadcaster: Broadcaster) {
         match listen_to_notifications(&database_url, broadcaster.clone()).await {
             Ok(_) => {
                 warn!("Listener connection closed, reconnecting...");
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
             }
             Err(e) => {
                 error!("Listener error: {}, reconnecting in 5 seconds...", e);

@@ -69,6 +69,18 @@ async fn main() {
 
     // Build application router
     let cors_origin = std::env::var("CORS_ORIGIN").unwrap_or_else(|_| "".to_string());
+    
+    // Check CORS_ORIGIN requirement
+    if cors_origin.is_empty() {
+        let rust_log = std::env::var("RUST_LOG").unwrap_or_default();
+
+        if rust_log != "debug" {
+            panic!("CORS_ORIGIN environment variable must be set in production mode");
+        } else {
+            tracing::warn!("CORS_ORIGIN is not set - allowing all origins in debug mode");
+        }
+    }
+    
     let cors_layer = if cors_origin.is_empty() {
         CorsLayer::new()
             .allow_origin(tower_http::cors::Any)

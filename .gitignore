@@ -5,7 +5,6 @@ node_modules/
 
 # Bun
 .bun/
-bun.lockb
 
 # Testing
 coverage/

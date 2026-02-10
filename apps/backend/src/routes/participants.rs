@@ -27,9 +27,10 @@ pub async fn list_participants(
     .fetch_all(&state.db_pool)
     .await
     .map_err(|e| {
+        tracing::error!("Failed to fetch participants: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Failed to fetch participants: {}", e) })),
+            Json(json!({ "error": "Internal server error" })),
         )
     })?;
 
@@ -50,9 +51,10 @@ pub async fn get_participant(
     .fetch_optional(&state.db_pool)
     .await
     .map_err(|e| {
+        tracing::error!("Database error fetching participant: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Database error: {}", e) })),
+            Json(json!({ "error": "Internal server error" })),
         )
     })?
     .ok_or_else(|| {
@@ -85,9 +87,10 @@ pub async fn create_participant(
     }
 
     let mut tx = state.db_pool.begin().await.map_err(|e| {
+        tracing::error!("Failed to start transaction: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Failed to start transaction: {}", e) })),
+            Json(json!({ "error": "Internal server error" })),
         )
     })?;
 
@@ -98,9 +101,10 @@ pub async fn create_participant(
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| {
+        tracing::error!("Database error checking event: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Database error: {}", e) })),
+            Json(json!({ "error": "Internal server error" })),
         )
     })?
     .ok_or_else(|| {
@@ -118,9 +122,10 @@ pub async fn create_participant(
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
+            tracing::error!("Database error counting participants: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": format!("Database error: {}", e) })),
+                Json(json!({ "error": "Internal server error" })),
             )
         })?;
 
@@ -153,16 +158,18 @@ pub async fn create_participant(
                 }
             }
         }
+        tracing::error!("Failed to create participant: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Failed to create participant: {}", e) })),
+            Json(json!({ "error": "Internal server error" })),
         )
     })?;
 
     tx.commit().await.map_err(|e| {
+        tracing::error!("Failed to commit transaction: {}", e);
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Failed to commit transaction: {}", e) })),
+            Json(json!({ "error": "Internal server error" })),
         )
     })?;
 
@@ -184,13 +191,14 @@ pub async fn update_participant_status(
     .bind(&payload.status)
     .bind(id)
     .fetch_optional(&state.db_pool)
-    .await
-    .map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": format!("Failed to update participant: {}", e) })),
-        )
-    })?
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update participant: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Internal server error" })),
+            )
+        })?
     .ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -211,9 +219,10 @@ pub async fn delete_participant(
         .execute(&state.db_pool)
         .await
         .map_err(|e| {
+            tracing::error!("Failed to delete participant: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": format!("Failed to delete participant: {}", e) })),
+                Json(json!({ "error": "Internal server error" })),
             )
         })?;
 
