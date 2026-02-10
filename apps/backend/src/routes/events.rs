@@ -4,6 +4,7 @@ use axum::{
     Json,
 };
 use serde_json::json;
+use sqlx::postgres::PgDatabaseError;
 use uuid::Uuid;
 
 use crate::models::{Event, CreateEvent};
@@ -66,6 +67,29 @@ pub async fn create_event(
     State(state): State<AppState>,
     Json(payload): Json<CreateEvent>,
 ) -> Result<(StatusCode, Json<Event>), (StatusCode, Json<serde_json::Value>)> {
+    if payload.end_time <= payload.start_time {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "end_time must be after start_time" })),
+        ));
+    }
+
+    if let Some(max) = payload.max_participants {
+        if max <= 0 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "max_participants must be greater than 0" })),
+            ));
+        }
+    }
+
+    if payload.title.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "title is required" })),
+        ));
+    }
+
     let event = sqlx::query_as::<_, Event>(
         "INSERT INTO events (title, description, start_time, end_time, location, max_participants) 
          VALUES ($1, $2, $3, $4, $5, $6) 
@@ -80,6 +104,16 @@ pub async fn create_event(
     .fetch_one(&state.db_pool)
     .await
     .map_err(|e| {
+        if let Some(db_error) = e.as_database_error() {
+            if let Some(pg_error) = db_error.downcast_ref::<PgDatabaseError>() {
+                if pg_error.code() == "23514" {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({ "error": "Invalid event values" })),
+                    );
+                }
+            }
+        }
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("Failed to create event: {}", e) })),
@@ -95,6 +129,29 @@ pub async fn update_event(
     Path(id): Path<Uuid>,
     Json(payload): Json<CreateEvent>,
 ) -> Result<Json<Event>, (StatusCode, Json<serde_json::Value>)> {
+    if payload.end_time <= payload.start_time {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "end_time must be after start_time" })),
+        ));
+    }
+
+    if let Some(max) = payload.max_participants {
+        if max <= 0 {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({ "error": "max_participants must be greater than 0" })),
+            ));
+        }
+    }
+
+    if payload.title.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "title is required" })),
+        ));
+    }
+
     let event = sqlx::query_as::<_, Event>(
         "UPDATE events 
          SET title = $1, description = $2, start_time = $3, end_time = $4, location = $5, max_participants = $6, updated_at = NOW()
@@ -111,6 +168,16 @@ pub async fn update_event(
     .fetch_optional(&state.db_pool)
     .await
     .map_err(|e| {
+        if let Some(db_error) = e.as_database_error() {
+            if let Some(pg_error) = db_error.downcast_ref::<PgDatabaseError>() {
+                if pg_error.code() == "23514" {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(json!({ "error": "Invalid event values" })),
+                    );
+                }
+            }
+        }
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("Failed to update event: {}", e) })),

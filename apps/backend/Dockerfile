@@ -18,7 +18,7 @@ FROM rust:1.83-bookworm AS builder
 WORKDIR /app
 
 # Install cargo-chef
-RUN cargo install cargo-chef --locked
+RUN cargo install cargo-chef --locked && cargo install sqlx-cli --no-default-features --features postgres --locked
 
 # Copy the recipe from planner
 COPY --from=planner /app/recipe.json recipe.json
@@ -54,14 +54,17 @@ RUN apt-get update && \
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-# Copy binary from builder
+# Copy binary and migrations from builder
 COPY --from=builder --chown=appuser:appuser /app/backend /app/backend
 COPY --from=builder --chown=appuser:appuser /app/migrations /app/migrations
 
+# Add migration runner
+COPY --from=builder --chown=appuser:appuser /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx
+
 USER appuser
 
-EXPOSE 8080
+EXPOSE 3000
 
 ENV RUST_LOG=info
 
-CMD ["/app/backend"]
+CMD ["/bin/sh", "-c", "sqlx migrate run --source /app/migrations && /app/backend"]

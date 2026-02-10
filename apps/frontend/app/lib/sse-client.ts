@@ -5,7 +5,7 @@
  * Provides type-safe event handling and automatic reconnection.
  */
 
-const SSE_BASE_URL = import.meta.env.VITE_SSE_URL || 'http://localhost:3000/sse'
+const SSE_BASE_URL = import.meta.env.VITE_SSE_URL || 'http://localhost:3000/api/events/stream'
 
 export interface SSEEvent<T = unknown> {
   type: string
@@ -26,9 +26,10 @@ export class SSEClient {
   private options: SSEClientOptions
   private retryCount = 0
   private listeners = new Map<string, Set<(event: SSEEvent) => void>>()
+  private nativeHandlers = new Map<string, (event: MessageEvent) => void>()
 
   constructor(endpoint: string, options: SSEClientOptions = {}) {
-    this.url = `${SSE_BASE_URL}${endpoint}`
+    this.url = endpoint ? `${SSE_BASE_URL}${endpoint}` : SSE_BASE_URL
     this.options = {
       reconnect: true,
       reconnectInterval: 3000,
@@ -58,6 +59,8 @@ export class SSEClient {
       this.eventSource.onmessage = (event) => {
         this.handleMessage(event)
       }
+
+      this.attachCustomListeners()
     } catch (error) {
       console.error('[SSE] Failed to connect:', error)
       this.handleError()
@@ -72,9 +75,7 @@ export class SSEClient {
 
     // Add native EventSource listener for custom event types
     if (this.eventSource && eventType !== 'message') {
-      this.eventSource.addEventListener(eventType, (e) => {
-        this.handleMessage(e as MessageEvent)
-      })
+      this.addNativeListener(eventType)
     }
   }
 
@@ -82,6 +83,14 @@ export class SSEClient {
     const listeners = this.listeners.get(eventType)
     if (listeners) {
       listeners.delete(callback)
+    }
+
+    if (listeners && listeners.size === 0 && this.eventSource && eventType !== 'message') {
+      const handler = this.nativeHandlers.get(eventType)
+      if (handler) {
+        this.eventSource.removeEventListener(eventType, handler)
+        this.nativeHandlers.delete(eventType)
+      }
     }
   }
 
@@ -139,6 +148,7 @@ export class SSEClient {
     if (this.eventSource) {
       this.eventSource.close()
       this.eventSource = null
+      this.nativeHandlers.clear()
       console.log('[SSE] Disconnected')
     }
   }
@@ -146,9 +156,31 @@ export class SSEClient {
   isConnected(): boolean {
     return this.eventSource !== null && this.eventSource.readyState === EventSource.OPEN
   }
+
+  private addNativeListener(eventType: string): void {
+    if (!this.eventSource || this.nativeHandlers.has(eventType)) {
+      return
+    }
+    const handler = (e: MessageEvent) => {
+      this.handleMessage(e)
+    }
+    this.eventSource.addEventListener(eventType, handler)
+    this.nativeHandlers.set(eventType, handler)
+  }
+
+  private attachCustomListeners(): void {
+    if (!this.eventSource) {
+      return
+    }
+    this.listeners.forEach((_listeners, eventType) => {
+      if (eventType !== 'message') {
+        this.addNativeListener(eventType)
+      }
+    })
+  }
 }
 
 // Example usage helper
-export function createEventSSEClient(eventId: string) {
-  return new SSEClient(`/events/${eventId}`)
+export function createEventSSEClient() {
+  return new SSEClient('')
 }

@@ -4,6 +4,7 @@ use axum::{
     Json,
 };
 use serde_json::json;
+use sqlx::postgres::PgDatabaseError;
 use uuid::Uuid;
 
 use crate::models::{Participant, CreateParticipant, UpdateParticipantStatus};
@@ -69,10 +70,52 @@ pub async fn create_participant(
     State(state): State<AppState>,
     Json(payload): Json<CreateParticipant>,
 ) -> Result<(StatusCode, Json<Participant>), (StatusCode, Json<serde_json::Value>)> {
-    // Verify event exists
-    let event_exists = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM events WHERE id = $1)")
-        .bind(payload.event_id)
-        .fetch_one(&state.db_pool)
+    if payload.name.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "name is required" })),
+        ));
+    }
+
+    if payload.email.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "email is required" })),
+        ));
+    }
+
+    let mut tx = state.db_pool.begin().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to start transaction: {}", e) })),
+        )
+    })?;
+
+    let max_participants = sqlx::query_scalar::<_, Option<i32>>(
+        "SELECT max_participants FROM events WHERE id = $1 FOR UPDATE"
+    )
+    .bind(&payload.event_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Database error: {}", e) })),
+        )
+    })?
+    .ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "Event not found" })),
+        )
+    })?;
+
+    if let Some(max) = max_participants {
+        let current_count = sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM participants WHERE event_id = $1"
+        )
+        .bind(&payload.event_id)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
             (
@@ -81,27 +124,45 @@ pub async fn create_participant(
             )
         })?;
 
-    if !event_exists {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            Json(json!({ "error": "Event not found" })),
-        ));
+        if current_count >= max as i64 {
+            return Err((
+                StatusCode::CONFLICT,
+                Json(json!({ "error": "Event is full" })),
+            ));
+        }
     }
 
     let participant = sqlx::query_as::<_, Participant>(
-        "INSERT INTO participants (event_id, name, email, status) 
-         VALUES ($1, $2, $3, 'registered') 
+        "INSERT INTO participants (event_id, name, email, status)
+         VALUES ($1, $2, $3, 'registered')
          RETURNING id, event_id, name, email, status, registered_at, updated_at"
     )
     .bind(&payload.event_id)
     .bind(&payload.name)
     .bind(&payload.email)
-    .fetch_one(&state.db_pool)
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| {
+        if let Some(db_error) = e.as_database_error() {
+            if let Some(pg_error) = db_error.downcast_ref::<PgDatabaseError>() {
+                if pg_error.code() == "23505" {
+                    return (
+                        StatusCode::CONFLICT,
+                        Json(json!({ "error": "Participant already registered" })),
+                    );
+                }
+            }
+        }
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({ "error": format!("Failed to create participant: {}", e) })),
+        )
+    })?;
+
+    tx.commit().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": format!("Failed to commit transaction: {}", e) })),
         )
     })?;
 

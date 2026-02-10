@@ -34,8 +34,17 @@ export class ApiClient {
     })
 
     if (!response.ok) {
+      let message = response.statusText
+      try {
+        const payload = await response.json()
+        if (payload?.error) {
+          message = payload.error
+        }
+      } catch {
+        // ignore parse errors
+      }
       const error: ApiError = {
-        message: `API request failed: ${response.statusText}`,
+        message: `API request failed: ${message}`,
         status: response.status,
       }
       throw error
@@ -85,8 +94,17 @@ export class ApiClient {
     })
 
     if (!response.ok) {
+      let message = response.statusText
+      try {
+        const payload = await response.json()
+        if (payload?.error) {
+          message = payload.error
+        }
+      } catch {
+        // ignore parse errors
+      }
       const error: ApiError = {
-        message: `API request failed: ${response.statusText}`,
+        message: `API request failed: ${message}`,
         status: response.status,
       }
       throw error

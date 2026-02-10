@@ -51,11 +51,8 @@ async fn listen_to_notifications(database_url: &str, broadcaster: Broadcaster) -
 }
 
 fn handle_notification(channel: &str, payload: &str, broadcaster: &Broadcaster) {
-    info!(
-        "Received notification on channel '{}': {}",
-        channel,
-        payload
-    );
+    info!("Received notification on channel '{}'", channel);
+    tracing::debug!("Notification payload: {}", payload);
     
     // Broadcast to all SSE clients
     let event = ServerEvent {

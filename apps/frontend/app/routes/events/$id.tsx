@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { useEvent, useParticipants, useCreateParticipant, useDeleteParticipant } from '../../lib/queries'
-import type { CreateParticipant } from '../../lib/types'
+import type { CreateParticipant, Participant } from '../../lib/types'
 
 export const Route = createFileRoute('/events/$id')({
   component: EventDetailComponent,
@@ -236,7 +236,7 @@ function AddParticipantForm({ eventId, onSuccess }: { eventId: string; onSuccess
   )
 }
 
-function ParticipantItem({ participant }: { participant: any }) {
+function ParticipantItem({ participant }: { participant: Participant }) {
   const deleteParticipant = useDeleteParticipant()
   const [showConfirm, setShowConfirm] = useState(false)
 

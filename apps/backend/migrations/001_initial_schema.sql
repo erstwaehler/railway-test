@@ -1,3 +1,6 @@
+-- Enable pgcrypto for gen_random_uuid
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- Create participant_status enum type
 CREATE TYPE participant_status AS ENUM ('registered', 'confirmed', 'cancelled', 'waitlisted');
 
@@ -75,7 +78,6 @@ BEGIN
             'operation', TG_OP,
             'table', TG_TABLE_NAME,
             'id', NEW.id,
-            'data', row_to_json(NEW),
             'timestamp', NOW()
         );
         PERFORM pg_notify('event_changes', payload::text);
@@ -106,7 +108,6 @@ BEGIN
             'table', TG_TABLE_NAME,
             'id', NEW.id,
             'event_id', NEW.event_id,
-            'data', row_to_json(NEW),
             'timestamp', NOW()
         );
         PERFORM pg_notify('participant_changes', payload::text);

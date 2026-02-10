@@ -63,7 +63,7 @@ function RootDocument({ children }: { children: ReactNode }) {
         `}</style>
       </head>
       <body>
-        {children}
+        <div id="root">{children}</div>
         <ScrollRestoration />
         <Scripts />
       </body>
