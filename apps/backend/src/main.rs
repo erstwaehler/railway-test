@@ -1,44 +1,15 @@
-mod broadcaster;
-mod cache;
-mod db;
-mod models;
-mod routes;
-
 use axum::{
     routing::{get, post},
     Router,
-    Json,
 };
-use serde::Serialize;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-use broadcaster::Broadcaster;
-use cache::AppCache;
-use db::DbPool;
-
-#[derive(Clone)]
-pub struct AppState {
-    pub db_pool: DbPool,
-    pub broadcaster: Broadcaster,
-    pub cache: AppCache,
-}
-
-#[derive(Serialize)]
-struct HealthResponse {
-    status: String,
-    timestamp: chrono::DateTime<chrono::Utc>,
-}
-
-async fn health_check() -> Json<HealthResponse> {
-    Json(HealthResponse {
-        status: "healthy".to_string(),
-        timestamp: chrono::Utc::now(),
-    })
-}
+use backend::{AppState, health_check};
+use backend::{broadcaster::Broadcaster, cache::AppCache, db, routes};
 
 #[tokio::main]
 async fn main() {
