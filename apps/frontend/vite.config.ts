@@ -3,8 +3,22 @@ import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
 import viteReact from '@vitejs/plugin-react'
 import viteTsconfigPaths from 'vite-tsconfig-paths'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      'tsr:routes-manifest': path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        'node_modules/@tanstack/react-start-router-manifest/dist/esm/index.js'
+      ),
+      'node:async_hooks': 'async_hooks',
+      'node:stream': 'stream',
+      'node:stream/web': 'stream/web'
+    },
+    conditions: ['node', 'import', 'module', 'browser', 'default']
+  },
   plugins: [
     tanstackStart(),
     nitro({ preset: 'bun' }),
@@ -27,19 +41,10 @@ export default defineConfig({
   build: {
     rollupOptions: {
       external: [
-        "@tanstack/react-start-router-manifest",
         "node:async_hooks",
         "node:stream",
         "node:stream/web"
       ]
     }
-  },
-  resolve: {
-    alias: {
-      'node:async_hooks': 'async_hooks',
-      'node:stream': 'stream',
-      'node:stream/web': 'stream/web'
-    },
-    conditions: ['node', 'import', 'module', 'browser', 'default']
   }
 })
