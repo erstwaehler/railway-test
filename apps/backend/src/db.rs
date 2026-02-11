@@ -158,10 +158,10 @@ pub async fn start_notification_poller(
         }
 
         // Clean up old notifications (keep last hour)
-        let _ = sqlx::query(
-            "DELETE FROM change_notifications WHERE created_at < datetime('now', '-1 hour')",
-        )
-        .execute(&pool)
-        .await;
+        let cutoff = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+        let _ = sqlx::query("DELETE FROM change_notifications WHERE created_at < ?")
+            .bind(&cutoff)
+            .execute(&pool)
+            .await;
     }
 }

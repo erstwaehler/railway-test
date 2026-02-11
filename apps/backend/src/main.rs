@@ -101,7 +101,7 @@ async fn main() {
         // Health check
         .route("/health", get(health_check))
         
-        // SSE stream endpoint (must be before parameterized event routes)
+        // SSE stream endpoint (static route must be before :id param to avoid matchit capture)
         .route("/api/events/stream", get(routes::sse::event_stream))
         
         // Event routes
