@@ -6,31 +6,6 @@
     "restartPolicyMaxRetries": 10
   },
   "services": {
-    "postgres": {
-      "name": "postgres",
-      "image": "postgres:16-alpine",
-      "deploy": {
-        "numReplicas": 1,
-        "restartPolicyType": "ON_FAILURE"
-      },
-      "variables": {
-        "POSTGRES_USER": "railway",
-        "POSTGRES_PASSWORD": "${{ secrets.POSTGRES_PASSWORD }}",
-        "POSTGRES_DB": "railway"
-      },
-      "volumes": [
-        {
-          "name": "postgres-data",
-          "mountPath": "/var/lib/postgresql/data"
-        }
-      ],
-      "healthcheck": {
-        "command": "pg_isready -U railway",
-        "interval": 10,
-        "timeout": 5,
-        "retries": 5
-      }
-    },
     "backend": {
       "name": "backend",
       "build": {
@@ -43,20 +18,24 @@
         "restartPolicyMaxRetries": 10
       },
       "variables": {
-        "DATABASE_URL": "${{ postgres.DATABASE_URL }}",
+        "DATA_DIR": "/run/media",
+        "CACHE_TTL_SECS": "60",
         "CORS_ORIGIN": "${{ frontend.url }}",
         "NODE_ENV": "production",
         "PORT": "3000"
       },
+      "volumes": [
+        {
+          "name": "backend-data",
+          "mountPath": "/run/media"
+        }
+      ],
       "healthcheck": {
         "path": "/health",
         "interval": 30,
         "timeout": 10,
         "retries": 3
-      },
-      "dependsOn": [
-        "postgres"
-      ]
+      }
     },
     "frontend": {
       "name": "frontend",

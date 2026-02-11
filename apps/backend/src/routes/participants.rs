@@ -4,9 +4,9 @@ use axum::{
     Json,
 };
 use serde_json::json;
-use sqlx::postgres::PgDatabaseError;
 use uuid::Uuid;
 
+use crate::db;
 use crate::models::{Participant, CreateParticipant, UpdateParticipantStatus};
 
 // Type alias for our app state
@@ -17,10 +17,17 @@ pub async fn list_participants(
     State(state): State<AppState>,
     Path(event_id): Path<Uuid>,
 ) -> Result<Json<Vec<Participant>>, (StatusCode, Json<serde_json::Value>)> {
+    let key = event_id.to_string();
+
+    // Check cache first
+    if let Some(participants) = state.cache.participants.get(&key).await {
+        return Ok(Json(participants));
+    }
+
     let participants = sqlx::query_as::<_, Participant>(
         "SELECT id, event_id, name, email, status, registered_at, updated_at 
          FROM participants 
-         WHERE event_id = $1 
+         WHERE event_id = ? 
          ORDER BY registered_at ASC"
     )
     .bind(event_id)
@@ -34,6 +41,9 @@ pub async fn list_participants(
         )
     })?;
 
+    // Populate cache
+    state.cache.participants.insert(key, participants.clone()).await;
+
     Ok(Json(participants))
 }
 
@@ -42,10 +52,17 @@ pub async fn get_participant(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Participant>, (StatusCode, Json<serde_json::Value>)> {
+    let id_str = id.to_string();
+
+    // Check cache first
+    if let Some(participant) = state.cache.participant.get(&id_str).await {
+        return Ok(Json(participant));
+    }
+
     let participant = sqlx::query_as::<_, Participant>(
         "SELECT id, event_id, name, email, status, registered_at, updated_at 
          FROM participants 
-         WHERE id = $1"
+         WHERE id = ?"
     )
     .bind(id)
     .fetch_optional(&state.db_pool)
@@ -63,6 +80,9 @@ pub async fn get_participant(
             Json(json!({ "error": "Participant not found" })),
         )
     })?;
+
+    // Populate cache
+    state.cache.participant.insert(id_str, participant.clone()).await;
 
     Ok(Json(participant))
 }
@@ -95,7 +115,7 @@ pub async fn create_participant(
     })?;
 
     let max_participants = sqlx::query_scalar::<_, Option<i32>>(
-        "SELECT max_participants FROM events WHERE id = $1 FOR UPDATE"
+        "SELECT max_participants FROM events WHERE id = ?"
     )
     .bind(&payload.event_id)
     .fetch_optional(&mut *tx)
@@ -116,7 +136,7 @@ pub async fn create_participant(
 
     if let Some(max) = max_participants {
         let current_count = sqlx::query_scalar::<_, i64>(
-            "SELECT count(*) FROM participants WHERE event_id = $1"
+            "SELECT count(*) FROM participants WHERE event_id = ?"
         )
         .bind(&payload.event_id)
         .fetch_one(&mut *tx)
@@ -137,20 +157,25 @@ pub async fn create_participant(
         }
     }
 
+    let id = Uuid::new_v4();
+    let now = chrono::Utc::now();
+
     let participant = sqlx::query_as::<_, Participant>(
-        "INSERT INTO participants (event_id, name, email, status)
-         VALUES ($1, $2, $3, 'registered')
+        "INSERT INTO participants (id, event_id, name, email, status, registered_at, updated_at)
+         VALUES (?, ?, ?, ?, 'registered', ?, ?)
          RETURNING id, event_id, name, email, status, registered_at, updated_at"
     )
+    .bind(id)
     .bind(&payload.event_id)
     .bind(&payload.name)
     .bind(&payload.email)
+    .bind(now)
+    .bind(now)
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| {
         if let Some(db_error) = e.as_database_error() {
-            let pg_error = db_error.downcast_ref::<PgDatabaseError>();
-            if pg_error.code() == "23505" {
+            if db_error.message().contains("UNIQUE constraint failed") {
                 return (
                     StatusCode::CONFLICT,
                     Json(json!({ "error": "Participant already registered" })),
@@ -172,6 +197,25 @@ pub async fn create_participant(
         )
     })?;
 
+    // Invalidate cache and notify other instances
+    state.cache.invalidate_participants().await;
+    let notification_payload = json!({
+        "operation": "INSERT",
+        "table": "participants",
+        "id": participant.id,
+        "event_id": participant.event_id,
+        "timestamp": chrono::Utc::now()
+    }).to_string();
+    if let Err(e) = db::insert_notification(
+        &state.db_pool,
+        "participant_changes",
+        &notification_payload,
+    )
+    .await
+    {
+        tracing::error!("Failed to insert participant notification: {}", e);
+    }
+
     Ok((StatusCode::CREATED, Json(participant)))
 }
 
@@ -181,29 +225,51 @@ pub async fn update_participant_status(
     Path(id): Path<Uuid>,
     Json(payload): Json<UpdateParticipantStatus>,
 ) -> Result<Json<Participant>, (StatusCode, Json<serde_json::Value>)> {
+    let now = chrono::Utc::now();
+
     let participant = sqlx::query_as::<_, Participant>(
         "UPDATE participants 
-         SET status = $1, updated_at = NOW()
-         WHERE id = $2
+         SET status = ?, updated_at = ?
+         WHERE id = ?
          RETURNING id, event_id, name, email, status, registered_at, updated_at"
     )
     .bind(&payload.status)
+    .bind(now)
     .bind(id)
     .fetch_optional(&state.db_pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to update participant: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Internal server error" })),
-            )
-        })?
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to update participant: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "Internal server error" })),
+        )
+    })?
     .ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "Participant not found" })),
         )
     })?;
+
+    // Invalidate cache and notify other instances
+    state.cache.invalidate_participants().await;
+    let notification_payload = json!({
+        "operation": "UPDATE",
+        "table": "participants",
+        "id": participant.id,
+        "event_id": participant.event_id,
+        "timestamp": chrono::Utc::now()
+    }).to_string();
+    if let Err(e) = db::insert_notification(
+        &state.db_pool,
+        "participant_changes",
+        &notification_payload,
+    )
+    .await
+    {
+        tracing::error!("Failed to insert participant notification: {}", e);
+    }
 
     Ok(Json(participant))
 }
@@ -213,7 +279,22 @@ pub async fn delete_participant(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
-    let result = sqlx::query("DELETE FROM participants WHERE id = $1")
+    // Get event_id before deletion for notification
+    let event_id = sqlx::query_scalar::<_, Uuid>(
+        "SELECT event_id FROM participants WHERE id = ?"
+    )
+    .bind(id)
+    .fetch_optional(&state.db_pool)
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to fetch participant: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "Internal server error" })),
+        )
+    })?;
+
+    let result = sqlx::query("DELETE FROM participants WHERE id = ?")
         .bind(id)
         .execute(&state.db_pool)
         .await
@@ -230,6 +311,25 @@ pub async fn delete_participant(
             StatusCode::NOT_FOUND,
             Json(json!({ "error": "Participant not found" })),
         ));
+    }
+
+    // Invalidate cache and notify other instances
+    state.cache.invalidate_participants().await;
+    let notification_payload = json!({
+        "operation": "DELETE",
+        "table": "participants",
+        "id": id,
+        "event_id": event_id,
+        "timestamp": chrono::Utc::now()
+    }).to_string();
+    if let Err(e) = db::insert_notification(
+        &state.db_pool,
+        "participant_changes",
+        &notification_payload,
+    )
+    .await
+    {
+        tracing::error!("Failed to insert participant notification: {}", e);
     }
 
     Ok(StatusCode::NO_CONTENT)
