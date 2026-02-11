@@ -29,7 +29,7 @@ pub struct Participant {
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]
 #[serde(rename_all = "lowercase")]
-#[sqlx(type_name = "participant_status", rename_all = "lowercase")]
+#[sqlx(rename_all = "lowercase")]
 pub enum ParticipantStatus {
     Registered,
     Confirmed,

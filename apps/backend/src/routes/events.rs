@@ -4,9 +4,9 @@ use axum::{
     Json,
 };
 use serde_json::json;
-use sqlx::postgres::PgDatabaseError;
 use uuid::Uuid;
 
+use crate::db;
 use crate::models::{Event, CreateEvent};
 
 // Type alias for our app state
@@ -16,6 +16,11 @@ type AppState = crate::AppState;
 pub async fn list_events(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Event>>, (StatusCode, Json<serde_json::Value>)> {
+    // Check cache first
+    if let Some(events) = state.cache.events_list.get("all").await {
+        return Ok(Json(events));
+    }
+
     let events = sqlx::query_as::<_, Event>(
         "SELECT id, title, description, start_time, end_time, location, max_participants, created_at, updated_at 
          FROM events 
@@ -31,6 +36,9 @@ pub async fn list_events(
         )
     })?;
 
+    // Populate cache
+    state.cache.events_list.insert("all".to_string(), events.clone()).await;
+
     Ok(Json(events))
 }
 
@@ -39,10 +47,17 @@ pub async fn get_event(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<Event>, (StatusCode, Json<serde_json::Value>)> {
+    let id_str = id.to_string();
+
+    // Check cache first
+    if let Some(event) = state.cache.event.get(&id_str).await {
+        return Ok(Json(event));
+    }
+
     let event = sqlx::query_as::<_, Event>(
         "SELECT id, title, description, start_time, end_time, location, max_participants, created_at, updated_at 
          FROM events 
-         WHERE id = $1"
+         WHERE id = ?"
     )
     .bind(id)
     .fetch_optional(&state.db_pool)
@@ -60,6 +75,9 @@ pub async fn get_event(
             Json(json!({ "error": "Event not found" })),
         )
     })?;
+
+    // Populate cache
+    state.cache.event.insert(id_str, event.clone()).await;
 
     Ok(Json(event))
 }
@@ -92,23 +110,28 @@ pub async fn create_event(
         ));
     }
 
+    let id = Uuid::new_v4();
+    let now = chrono::Utc::now();
+
     let event = sqlx::query_as::<_, Event>(
-        "INSERT INTO events (title, description, start_time, end_time, location, max_participants) 
-         VALUES ($1, $2, $3, $4, $5, $6) 
+        "INSERT INTO events (id, title, description, start_time, end_time, location, max_participants, created_at, updated_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) 
          RETURNING id, title, description, start_time, end_time, location, max_participants, created_at, updated_at"
     )
+    .bind(id)
     .bind(&payload.title)
     .bind(&payload.description)
     .bind(&payload.start_time)
     .bind(&payload.end_time)
     .bind(&payload.location)
     .bind(&payload.max_participants)
+    .bind(now)
+    .bind(now)
     .fetch_one(&state.db_pool)
     .await
     .map_err(|e| {
         if let Some(db_error) = e.as_database_error() {
-            let pg_error = db_error.downcast_ref::<PgDatabaseError>();
-            if pg_error.code() == "23514" {
+            if db_error.message().contains("CHECK constraint failed") {
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(json!({ "error": "Invalid event values" })),
@@ -121,6 +144,16 @@ pub async fn create_event(
             Json(json!({ "error": "Internal server error" })),
         )
     })?;
+
+    // Invalidate cache and notify other instances
+    state.cache.invalidate_events().await;
+    let notification_payload = json!({
+        "operation": "INSERT",
+        "table": "events",
+        "id": event.id,
+        "timestamp": chrono::Utc::now()
+    }).to_string();
+    db::insert_notification(&state.db_pool, "event_changes", &notification_payload).await;
 
     Ok((StatusCode::CREATED, Json(event)))
 }
@@ -154,10 +187,12 @@ pub async fn update_event(
         ));
     }
 
+    let now = chrono::Utc::now();
+
     let event = sqlx::query_as::<_, Event>(
         "UPDATE events 
-         SET title = $1, description = $2, start_time = $3, end_time = $4, location = $5, max_participants = $6, updated_at = NOW()
-         WHERE id = $7
+         SET title = ?, description = ?, start_time = ?, end_time = ?, location = ?, max_participants = ?, updated_at = ?
+         WHERE id = ?
          RETURNING id, title, description, start_time, end_time, location, max_participants, created_at, updated_at"
     )
     .bind(&payload.title)
@@ -166,13 +201,13 @@ pub async fn update_event(
     .bind(&payload.end_time)
     .bind(&payload.location)
     .bind(&payload.max_participants)
+    .bind(now)
     .bind(id)
     .fetch_optional(&state.db_pool)
     .await
     .map_err(|e| {
         if let Some(db_error) = e.as_database_error() {
-            let pg_error = db_error.downcast_ref::<PgDatabaseError>();
-            if pg_error.code() == "23514" {
+            if db_error.message().contains("CHECK constraint failed") {
                 return (
                     StatusCode::BAD_REQUEST,
                     Json(json!({ "error": "Invalid event values" })),
@@ -192,6 +227,16 @@ pub async fn update_event(
         )
     })?;
 
+    // Invalidate cache and notify other instances
+    state.cache.invalidate_event(&id.to_string()).await;
+    let notification_payload = json!({
+        "operation": "UPDATE",
+        "table": "events",
+        "id": event.id,
+        "timestamp": chrono::Utc::now()
+    }).to_string();
+    db::insert_notification(&state.db_pool, "event_changes", &notification_payload).await;
+
     Ok(Json(event))
 }
 
@@ -200,7 +245,7 @@ pub async fn delete_event(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
-    let result = sqlx::query("DELETE FROM events WHERE id = $1")
+    let result = sqlx::query("DELETE FROM events WHERE id = ?")
         .bind(id)
         .execute(&state.db_pool)
         .await
@@ -218,6 +263,17 @@ pub async fn delete_event(
             Json(json!({ "error": "Event not found" })),
         ));
     }
+
+    // Invalidate cache and notify other instances
+    state.cache.invalidate_event(&id.to_string()).await;
+    state.cache.invalidate_participants().await;
+    let notification_payload = json!({
+        "operation": "DELETE",
+        "table": "events",
+        "id": id,
+        "timestamp": chrono::Utc::now()
+    }).to_string();
+    db::insert_notification(&state.db_pool, "event_changes", &notification_payload).await;
 
     Ok(StatusCode::NO_CONTENT)
 }

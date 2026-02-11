@@ -20,7 +20,7 @@ FROM rust:1.93-bookworm AS builder
 WORKDIR /app
 
 # Install cargo-chef
-RUN cargo install cargo-chef --locked && cargo install sqlx-cli --no-default-features --features postgres --locked
+RUN cargo install cargo-chef --locked
 
 # Copy the recipe from planner
 COPY --from=planner /app/recipe.json recipe.json
@@ -33,7 +33,6 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # Copy source code
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
-COPY migrations ./migrations
 
 # Build application
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
@@ -46,27 +45,28 @@ FROM debian:bookworm-slim AS runtime
 
 WORKDIR /app
 
-# Install runtime dependencies
+# Install runtime dependencies (including SQLite)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
+    libsqlite3-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
-# Copy binary and migrations from builder
+# Copy binary from builder
 COPY --from=builder --chown=appuser:appuser /app/backend /app/backend
-COPY --from=builder --chown=appuser:appuser /app/migrations /app/migrations
 
-# Add migration runner
-COPY --from=builder --chown=appuser:appuser /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx
+# Create default data directory
+RUN mkdir -p /run/media && chown appuser:appuser /run/media
 
 USER appuser
 
 EXPOSE 3000
 
 ENV RUST_LOG=info
+ENV DATA_DIR=/run/media
 
-CMD ["/bin/sh", "-c", "sqlx migrate run --source /app/migrations && /app/backend"]
+CMD ["/app/backend"]
