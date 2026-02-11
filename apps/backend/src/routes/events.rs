@@ -153,7 +153,15 @@ pub async fn create_event(
         "id": event.id,
         "timestamp": chrono::Utc::now()
     }).to_string();
-    db::insert_notification(&state.db_pool, "event_changes", &notification_payload).await;
+    if let Err(e) = db::insert_notification(
+        &state.db_pool,
+        "event_changes",
+        &notification_payload,
+    )
+    .await
+    {
+        tracing::error!("Failed to insert event notification: {}", e);
+    }
 
     Ok((StatusCode::CREATED, Json(event)))
 }
@@ -235,7 +243,15 @@ pub async fn update_event(
         "id": event.id,
         "timestamp": chrono::Utc::now()
     }).to_string();
-    db::insert_notification(&state.db_pool, "event_changes", &notification_payload).await;
+    if let Err(e) = db::insert_notification(
+        &state.db_pool,
+        "event_changes",
+        &notification_payload,
+    )
+    .await
+    {
+        tracing::error!("Failed to insert event notification: {}", e);
+    }
 
     Ok(Json(event))
 }
@@ -273,7 +289,15 @@ pub async fn delete_event(
         "id": id,
         "timestamp": chrono::Utc::now()
     }).to_string();
-    db::insert_notification(&state.db_pool, "event_changes", &notification_payload).await;
+    if let Err(e) = db::insert_notification(
+        &state.db_pool,
+        "event_changes",
+        &notification_payload,
+    )
+    .await
+    {
+        tracing::error!("Failed to insert event notification: {}", e);
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

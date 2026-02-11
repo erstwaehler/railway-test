@@ -87,22 +87,29 @@ pub async fn initialize_tables(pool: &DbPool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_change_notifications_created_at ON change_notifications(created_at)")
+        .execute(pool)
+        .await?;
+
     info!("Database tables initialized");
     Ok(())
 }
 
 /// Insert a change notification for cross-instance sync
-pub async fn insert_notification(pool: &DbPool, channel: &str, payload: &str) {
+pub async fn insert_notification(
+    pool: &DbPool,
+    channel: &str,
+    payload: &str,
+) -> Result<(), sqlx::Error> {
     let now = chrono::Utc::now().to_rfc3339();
-    if let Err(e) = sqlx::query("INSERT INTO change_notifications (channel, payload, created_at) VALUES (?, ?, ?)")
+    sqlx::query("INSERT INTO change_notifications (channel, payload, created_at) VALUES (?, ?, ?)")
         .bind(channel)
         .bind(payload)
         .bind(&now)
         .execute(pool)
-        .await
-    {
-        error!("Failed to insert notification: {}", e);
-    }
+        .await?;
+
+    Ok(())
 }
 
 /// Get the current maximum notification ID
@@ -121,6 +128,8 @@ pub async fn start_notification_poller(
     cache: AppCache,
     last_id: Arc<Mutex<i64>>,
 ) {
+    let mut poll_count: u64 = 0;
+
     loop {
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
@@ -157,11 +166,17 @@ pub async fn start_notification_poller(
             }
         }
 
-        // Clean up old notifications (keep last hour)
-        let cutoff = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
-        let _ = sqlx::query("DELETE FROM change_notifications WHERE created_at < ?")
-            .bind(&cutoff)
-            .execute(&pool)
-            .await;
+        poll_count = poll_count.saturating_add(1);
+        if poll_count % 60 == 0 {
+            // Clean up old notifications (keep last hour)
+            let cutoff = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+            if let Err(e) = sqlx::query("DELETE FROM change_notifications WHERE created_at < ?")
+                .bind(&cutoff)
+                .execute(&pool)
+                .await
+            {
+                error!("Failed to cleanup notifications: {}", e);
+            }
+        }
     }
 }

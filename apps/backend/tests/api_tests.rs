@@ -11,7 +11,7 @@ use tower::ServiceExt;
 use backend::{AppState, cache::AppCache, db, broadcaster::Broadcaster};
 
 /// Helper to create a test app state with a temporary SQLite database
-async fn create_test_state() -> AppState {
+async fn create_test_state() -> (AppState, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test.db");
     let db_path_str = db_path.to_str().unwrap();
@@ -22,14 +22,13 @@ async fn create_test_state() -> AppState {
     let cache = AppCache::new(60);
     let broadcaster = Broadcaster::new();
 
-    // Leak the tempdir so it persists for the test duration
-    std::mem::forget(dir);
-
-    AppState {
+    let state = AppState {
         db_pool,
         broadcaster,
         cache,
-    }
+    };
+
+    (state, dir)
 }
 
 /// Helper to build the test router (same as main.rs)
@@ -59,7 +58,7 @@ async fn body_json(response: axum::http::Response<Body>) -> Value {
 
 #[tokio::test]
 async fn test_health_check() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state);
 
     let response = app
@@ -84,7 +83,7 @@ async fn test_health_check() {
 
 #[tokio::test]
 async fn test_create_and_get_event() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state);
 
     // Create event
@@ -137,7 +136,7 @@ async fn test_create_and_get_event() {
 
 #[tokio::test]
 async fn test_list_events() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state);
 
     // Create two events
@@ -179,7 +178,7 @@ async fn test_list_events() {
 
 #[tokio::test]
 async fn test_update_event() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state);
 
     // Create event
@@ -233,7 +232,7 @@ async fn test_update_event() {
 
 #[tokio::test]
 async fn test_delete_event() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state);
 
     // Create event
@@ -294,7 +293,7 @@ async fn test_delete_event() {
 
 #[tokio::test]
 async fn test_create_event_invalid_time_range() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state);
 
     let body = json!({
@@ -320,7 +319,7 @@ async fn test_create_event_invalid_time_range() {
 
 #[tokio::test]
 async fn test_create_event_empty_title() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state);
 
     let body = json!({
@@ -346,7 +345,7 @@ async fn test_create_event_empty_title() {
 
 #[tokio::test]
 async fn test_get_nonexistent_event() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state);
 
     let response = app
@@ -368,7 +367,7 @@ async fn test_get_nonexistent_event() {
 
 #[tokio::test]
 async fn test_create_and_list_participants() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state);
 
     // Create event
@@ -437,7 +436,7 @@ async fn test_create_and_list_participants() {
 
 #[tokio::test]
 async fn test_update_participant_status() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state);
 
     // Create event
@@ -502,7 +501,7 @@ async fn test_update_participant_status() {
 
 #[tokio::test]
 async fn test_duplicate_participant_rejected() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state);
 
     // Create event
@@ -566,7 +565,7 @@ async fn test_duplicate_participant_rejected() {
 
 #[tokio::test]
 async fn test_event_full_rejected() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state);
 
     // Create event with max_participants = 1
@@ -592,7 +591,7 @@ async fn test_event_full_rejected() {
     let event_id = event["id"].as_str().unwrap();
 
     // First participant
-    app.clone()
+    let response = app.clone()
         .oneshot(
             Request::builder()
                 .method(Method::POST)
@@ -607,6 +606,8 @@ async fn test_event_full_rejected() {
         )
         .await
         .unwrap();
+
+    assert_eq!(response.status(), StatusCode::CREATED);
 
     // Second participant should fail (event full)
     let response = app
@@ -634,7 +635,7 @@ async fn test_event_full_rejected() {
 
 #[tokio::test]
 async fn test_cache_is_populated_on_read() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state.clone());
 
     // Create event
@@ -675,7 +676,7 @@ async fn test_cache_is_populated_on_read() {
 
 #[tokio::test]
 async fn test_cache_invalidated_on_write() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state.clone());
 
     // Create and list events (populates list cache)
@@ -760,7 +761,9 @@ async fn test_notification_insert_and_poll() {
     db::initialize_tables(&pool).await.unwrap();
 
     // Insert notification
-    db::insert_notification(&pool, "event_changes", "{\"test\": true}").await;
+    db::insert_notification(&pool, "event_changes", "{\"test\": true}")
+        .await
+        .unwrap();
 
     // Check it was stored
     let max_id = db::get_max_notification_id(&pool).await;
@@ -784,7 +787,7 @@ async fn test_notification_insert_and_poll() {
 
 #[tokio::test]
 async fn test_delete_participant() {
-    let state = create_test_state().await;
+    let (state, _temp_dir) = create_test_state().await;
     let app = build_app(state);
 
     // Create event

@@ -30,10 +30,14 @@ async fn main() {
     std::fs::create_dir_all(&data_dir)
         .expect("Failed to create data directory");
 
-    let db_path = format!("{}/data.db", data_dir);
+    let db_path = std::path::Path::new(&data_dir).join("data.db");
 
     // Initialize SQLite database pool
-    let db_pool = db::create_pool(&db_path)
+    let db_path = db_path
+        .to_str()
+        .expect("Failed to build database path");
+
+    let db_pool = db::create_pool(db_path)
         .await
         .expect("Failed to create database pool");
 

@@ -206,7 +206,15 @@ pub async fn create_participant(
         "event_id": participant.event_id,
         "timestamp": chrono::Utc::now()
     }).to_string();
-    db::insert_notification(&state.db_pool, "participant_changes", &notification_payload).await;
+    if let Err(e) = db::insert_notification(
+        &state.db_pool,
+        "participant_changes",
+        &notification_payload,
+    )
+    .await
+    {
+        tracing::error!("Failed to insert participant notification: {}", e);
+    }
 
     Ok((StatusCode::CREATED, Json(participant)))
 }
@@ -229,14 +237,14 @@ pub async fn update_participant_status(
     .bind(now)
     .bind(id)
     .fetch_optional(&state.db_pool)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to update participant: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Internal server error" })),
-            )
-        })?
+    .await
+    .map_err(|e| {
+        tracing::error!("Failed to update participant: {}", e);
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "Internal server error" })),
+        )
+    })?
     .ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,
@@ -253,7 +261,15 @@ pub async fn update_participant_status(
         "event_id": participant.event_id,
         "timestamp": chrono::Utc::now()
     }).to_string();
-    db::insert_notification(&state.db_pool, "participant_changes", &notification_payload).await;
+    if let Err(e) = db::insert_notification(
+        &state.db_pool,
+        "participant_changes",
+        &notification_payload,
+    )
+    .await
+    {
+        tracing::error!("Failed to insert participant notification: {}", e);
+    }
 
     Ok(Json(participant))
 }
@@ -306,7 +322,15 @@ pub async fn delete_participant(
         "event_id": event_id,
         "timestamp": chrono::Utc::now()
     }).to_string();
-    db::insert_notification(&state.db_pool, "participant_changes", &notification_payload).await;
+    if let Err(e) = db::insert_notification(
+        &state.db_pool,
+        "participant_changes",
+        &notification_payload,
+    )
+    .await
+    {
+        tracing::error!("Failed to insert participant notification: {}", e);
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }
