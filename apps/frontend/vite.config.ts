@@ -37,7 +37,8 @@ export default defineConfig({
       external: [
         "node:async_hooks",
         "node:stream",
-        "node:stream/web"
+        "node:stream/web",
+        "tsr:routes-manifest"
       ]
     }
   }
